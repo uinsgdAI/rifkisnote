@@ -150,6 +150,20 @@ export function isAllowedPapaCambridgePdfUrl(rawUrl: string): URL | null {
   }
 }
 
+export function buildGoogleDocsViewerUrl(pdfUrl: string): string {
+  return `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(pdfUrl)}`;
+}
+
+export function resolvePdfIframeUrl(
+  pdfUrl: string,
+  options: { apiProxyAvailable: boolean; viewerMode: 'proxy' | 'web' }
+): string {
+  if (options.apiProxyAvailable && options.viewerMode === 'proxy') {
+    return `/api/papacambridge/pdf?url=${encodeURIComponent(pdfUrl)}`;
+  }
+  return buildGoogleDocsViewerUrl(pdfUrl);
+}
+
 const sessionCache: { data: PastPaperSession[]; expiresAt: number } = {
   data: [],
   expiresAt: 0,

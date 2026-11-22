@@ -10,11 +10,13 @@ import {
   findMatchingSyllabusTopics,
 } from './examLogic';
 import {
+  buildGoogleDocsViewerUrl,
   FALLBACK_SESSIONS,
   generateSessionPaperFallback,
   isAllowedPapaCambridgePdfUrl,
   parsePapersFromHtml,
   parseSessionsFromHtml,
+  resolvePdfIframeUrl,
 } from './papacambridge';
 import { SYLLABUS_0580, ALL_SUBTOPICS_0580 } from '../data/syllabus0580';
 import { PRACTICE_QUESTION_BANK } from '../data/practiceBank';
@@ -225,6 +227,25 @@ test('PapaCambridge utilities parse HTML sessions/papers, enforce safe PDF URLs,
   );
   assert.equal(isAllowedPapaCambridgePdfUrl('https://evil.example.com/test.pdf'), null);
   assert.equal(isAllowedPapaCambridgePdfUrl('http://pastpapers.papacambridge.com/test.pdf'), null);
+
+  const samplePdf =
+    'https://pastpapers.papacambridge.com/directories/CAIE/CAIE-pastpapers/upload/0580_s19_qp_11.pdf';
+  assert.equal(
+    buildGoogleDocsViewerUrl(samplePdf),
+    `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(samplePdf)}`
+  );
+  assert.equal(
+    resolvePdfIframeUrl(samplePdf, { apiProxyAvailable: true, viewerMode: 'proxy' }),
+    `/api/papacambridge/pdf?url=${encodeURIComponent(samplePdf)}`
+  );
+  assert.equal(
+    resolvePdfIframeUrl(samplePdf, { apiProxyAvailable: false, viewerMode: 'proxy' }),
+    `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(samplePdf)}`
+  );
+  assert.equal(
+    resolvePdfIframeUrl(samplePdf, { apiProxyAvailable: true, viewerMode: 'web' }),
+    `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(samplePdf)}`
+  );
 });
 
 
