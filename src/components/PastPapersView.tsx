@@ -14,6 +14,7 @@ import {
 import { ALL_SUBTOPICS_0580, SYLLABUS_0580 } from '../data/syllabus0580';
 import type { AppRoute, PastPaperFile, PastPaperSession } from '../types/syllabus';
 import { findMatchingSyllabusTopics } from '../utils/examLogic';
+import { FALLBACK_SESSIONS, generateSessionPaperFallback } from '../utils/papacambridge';
 import { MathText } from './MathText';
 
 interface PastPapersViewProps {
@@ -24,16 +25,17 @@ interface PastPapersViewProps {
   onNavigate: (route: AppRoute) => void;
 }
 
-const BASELINE_SESSIONS: PastPaperSession[] = [
-  { slug: '2026-may-june', label: 'May / June 2026', year: 2026, series: 'May/June', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2026-may-june' },
-  { slug: '2026-march', label: 'Feb / March 2026', year: 2026, series: 'March', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2026-march' },
-  { slug: '2025-oct-nov', label: 'Oct / Nov 2025', year: 2025, series: 'Oct/Nov', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2025-oct-nov' },
-  { slug: '2025-may-june', label: 'May / June 2025', year: 2025, series: 'May/June', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2025-may-june' },
-  { slug: '2025-march', label: 'Feb / March 2025', year: 2025, series: 'March', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2025-march' },
-  { slug: '2024-oct-nov', label: 'Oct / Nov 2024', year: 2024, series: 'Oct/Nov', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2024-oct-nov' },
-  { slug: '2024-may-june', label: 'May / June 2024', year: 2024, series: 'May/June', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2024-may-june' },
-  { slug: '2024-march', label: 'Feb / March 2024', year: 2024, series: 'March', url: 'https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2024-march' },
-];
+async function fetchJsonSafe<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.toLowerCase().includes('application/json')) {
+    throw new Error('Non-JSON response (static host without API functions)');
+  }
+  return (await res.json()) as T;
+}
 
 const DOC_TYPE_ORDER: Record<PastPaperFile['docType'], number> = {
   QP: 0,
@@ -61,29 +63,34 @@ export const PastPapersView: React.FC<PastPapersViewProps> = ({
   onClearWeakTopic,
   onNavigate,
 }) => {
-  const [sessions, setSessions] = useState<PastPaperSession[]>(BASELINE_SESSIONS);
+  const [sessions, setSessions] = useState<PastPaperSession[]>(FALLBACK_SESSIONS);
   const [selectedSession, setSelectedSession] = useState<string>(
     initialSessionSlug || '2024-may-june'
   );
-  const [papers, setPapers] = useState<PastPaperFile[]>([]);
+  const [papers, setPapers] = useState<PastPaperFile[]>(() =>
+    generateSessionPaperFallback(initialSessionSlug || '2024-may-june')
+  );
   const [loadingSessions, setLoadingSessions] = useState(false);
   const [loadingPapers, setLoadingPapers] = useState(true);
+  const [apiProxyAvailable, setApiProxyAvailable] = useState(true);
   const [paperFilter, setPaperFilter] = useState<'all' | '1' | '2' | '3' | '4'>('all');
   const [docFilter, setDocFilter] = useState<'all' | 'QP' | 'MS' | 'ER' | 'GT'>('all');
   const [activePrimaryPdf, setActivePrimaryPdf] = useState<PastPaperFile | null>(null);
   const [activeSecondaryPdf, setActiveSecondaryPdf] = useState<PastPaperFile | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [topicQuery, setTopicQuery] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     setLoadingSessions(true);
-    fetch('/api/papacambridge/sessions')
-      .then((res) => res.json())
+    fetchJsonSafe<{ sessions?: PastPaperSession[] }>('/api/papacambridge/sessions')
       .then((data) => {
         if (cancelled) return;
-        const list: PastPaperSession[] = Array.isArray(data.sessions) ? data.sessions : [];
+        const list =
+          Array.isArray(data.sessions) && data.sessions.length > 0
+            ? data.sessions
+            : FALLBACK_SESSIONS;
         setSessions(list);
+        setApiProxyAvailable(true);
         if (!initialSessionSlug && list.length > 0) {
           const defaultSess =
             list.find((s) => s.slug === '2024-may-june')?.slug || list[0].slug;
@@ -91,7 +98,9 @@ export const PastPapersView: React.FC<PastPapersViewProps> = ({
         }
       })
       .catch(() => {
-        if (!cancelled) setErrorMsg('Could not load PapaCambridge exam sessions.');
+        if (cancelled) return;
+        setApiProxyAvailable(false);
+        setSessions(FALLBACK_SESSIONS);
       })
       .finally(() => {
         if (!cancelled) setLoadingSessions(false);
@@ -105,16 +114,22 @@ export const PastPapersView: React.FC<PastPapersViewProps> = ({
     if (!selectedSession) return;
     let cancelled = false;
     setLoadingPapers(true);
-    setErrorMsg(null);
-    fetch(`/api/papacambridge/papers?session=${encodeURIComponent(selectedSession)}`)
-      .then((res) => res.json())
+    fetchJsonSafe<{ papers?: PastPaperFile[] }>(
+      `/api/papacambridge/papers?session=${encodeURIComponent(selectedSession)}`
+    )
       .then((data) => {
         if (cancelled) return;
-        const list: PastPaperFile[] = Array.isArray(data.papers) ? data.papers : [];
+        const list =
+          Array.isArray(data.papers) && data.papers.length > 0
+            ? data.papers
+            : generateSessionPaperFallback(selectedSession);
         setPapers(list);
+        setApiProxyAvailable(true);
       })
       .catch(() => {
-        if (!cancelled) setErrorMsg('Could not fetch paper list for this session.');
+        if (cancelled) return;
+        setApiProxyAvailable(false);
+        setPapers(generateSessionPaperFallback(selectedSession));
       })
       .finally(() => {
         if (!cancelled) setLoadingPapers(false);
@@ -167,7 +182,9 @@ export const PastPapersView: React.FC<PastPapersViewProps> = ({
   };
 
   const pdfProxyUrl = (file: PastPaperFile) =>
-    `/api/papacambridge/pdf?url=${encodeURIComponent(file.url)}`;
+    apiProxyAvailable
+      ? `/api/papacambridge/pdf?url=${encodeURIComponent(file.url)}`
+      : file.url;
 
   const topicMatches = useMemo(
     () => findMatchingSyllabusTopics(topicQuery, SYLLABUS_0580, 6),
@@ -507,13 +524,11 @@ export const PastPapersView: React.FC<PastPapersViewProps> = ({
 
       {/* Papers List */}
       <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-        {loadingPapers ? (
+        {loadingPapers && papers.length === 0 ? (
           <div className="p-12 flex items-center justify-center gap-3 text-sm text-slate-500">
             <Loader2 className="w-4 h-4 animate-spin" />
             Loading 0580 papers from PapaCambridge...
           </div>
-        ) : errorMsg ? (
-          <div className="p-8 text-center text-sm text-rose-700">{errorMsg}</div>
         ) : filteredPapers.length === 0 ? (
           <div className="p-8 text-center text-sm text-slate-500">
             No papers match the selected filter in this session.

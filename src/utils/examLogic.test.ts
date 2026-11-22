@@ -9,6 +9,13 @@ import {
   extractWeakTopicsFromResults,
   findMatchingSyllabusTopics,
 } from './examLogic';
+import {
+  FALLBACK_SESSIONS,
+  generateSessionPaperFallback,
+  isAllowedPapaCambridgePdfUrl,
+  parsePapersFromHtml,
+  parseSessionsFromHtml,
+} from './papacambridge';
 import { SYLLABUS_0580, ALL_SUBTOPICS_0580 } from '../data/syllabus0580';
 import { PRACTICE_QUESTION_BANK } from '../data/practiceBank';
 
@@ -188,4 +195,36 @@ test('findMatchingSyllabusTopics maps polygon and statistic queries to exact 058
   assert.ok(statMatches.length >= 5);
   assert.ok(statMatches.every((m) => m.chapterId === 9));
 });
+
+test('PapaCambridge utilities parse HTML sessions/papers, enforce safe PDF URLs, and provide static fallback', () => {
+  assert.ok(FALLBACK_SESSIONS.length >= 15);
+  const fallbackPapers = generateSessionPaperFallback('2024-may-june');
+  assert.ok(fallbackPapers.length >= 26);
+  assert.ok(fallbackPapers.some((p) => p.filename === '0580_s24_qp_42.pdf'));
+  assert.ok(fallbackPapers.some((p) => p.filename === '0580_s24_ms_42.pdf'));
+
+  const sampleSessionHtml = `
+    <a href="https://pastpapers.papacambridge.com/papers/caie/igcse-mathematics-0580-2025-may-june">May June 2025</a>
+    <a href="/papers/caie/igcse-mathematics-0580-syllabus">Syllabus</a>
+  `;
+  const parsedSessions = parseSessionsFromHtml(sampleSessionHtml);
+  assert.equal(parsedSessions.length, 1);
+  assert.equal(parsedSessions[0].slug, '2025-may-june');
+
+  const samplePaperHtml = `
+    <a href="https://pastpapers.papacambridge.com/directories/CAIE/CAIE-pastpapers/upload/0580_s25_qp_22.pdf">QP</a>
+  `;
+  const parsedPapers = parsePapersFromHtml(samplePaperHtml, '2025-may-june');
+  assert.equal(parsedPapers.length, 1);
+  assert.equal(parsedPapers[0].paperNumber, '2');
+
+  assert.ok(
+    isAllowedPapaCambridgePdfUrl(
+      'https://pastpapers.papacambridge.com/directories/CAIE/CAIE-pastpapers/upload/0580_s24_qp_12.pdf'
+    )
+  );
+  assert.equal(isAllowedPapaCambridgePdfUrl('https://evil.example.com/test.pdf'), null);
+  assert.equal(isAllowedPapaCambridgePdfUrl('http://pastpapers.papacambridge.com/test.pdf'), null);
+});
+
 
